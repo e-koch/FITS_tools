@@ -97,13 +97,14 @@ def regrid_cube_hdu(hdu, outheader, smooth=False, **kwargs):
     return newhdu
 
 def regrid_cube(cubedata, cubeheader, targetheader, preserve_bad_pixels=True,
-                order=1, mode='constant', out_of_bounds=np.nan, **kwargs):
+                order=1, mode='constant', out_of_bounds=np.nan,
+                specaxes=(2, 2), **kwargs):
     """
     Attempt to reproject a cube onto another cube's header.  Uses interpolation
     via `~scipy.ndimage.interpolation.map_coordinates`
 
     Assumptions:
-    
+
      * Both the cube and the target are 3-dimensional, with lon/lat/spectral axes
      * Both cube and header use CD/CDELT rather than PC
 
@@ -139,10 +140,11 @@ def regrid_cube(cubedata, cubeheader, targetheader, preserve_bad_pixels=True,
         if cubedata.ndim != 3:
             raise ValueError("Dataset has %i dimensions, so it's not a cube." % cubedata.ndim)
 
-    full_grid = get_cube_mapping(cubeheader, targetheader)
+    full_grid = get_cube_mapping(cubeheader, targetheader,
+                                 specaxis1=specaxes[0], specaxis2=specaxes[1])
     grid_limits = find_grid_limits(full_grid)
     # subtract off the lower coordinate of each grid:
-    # this is a performance optimization to only use a subset of the 
+    # this is a performance optimization to only use a subset of the
     # cube if gridding a large cube onto a smaller space
     # This is therefore done IF AND ONLY IF that coordinate is positive!
     grid = [g - m[0] if m[0] > 0 else g
@@ -184,7 +186,7 @@ def regrid_cube(cubedata, cubeheader, targetheader, preserve_bad_pixels=True,
         newbad = scipy.ndimage.map_coordinates(bad_pixels, grid, order=0,
                                                mode='constant', cval=True)
         newcubedata[newbad.astype('bool')] = np.nan
-    
+
     return newcubedata.astype(dtype_in)
 
 def find_grid_limits(grid):
@@ -196,16 +198,17 @@ def find_grid_limits(grid):
     """
     return [(int(np.floor(np.nanmin(g))),int(np.ceil(np.nanmax(g)))) for g in grid]
 
-def get_cube_mapping(header1, header2):
+def get_cube_mapping(header1, header2, specaxis1=2, specaxis2=2):
     """
     Determine the pixel mapping from Header 1 to Header 2
 
     Assumptions are spelled out in `~regrid_cube`
     """
-    specgrid = get_spectral_mapping(header1,header2,specaxis1=2,specaxis2=2)
+    specgrid = get_spectral_mapping(header1,header2,specaxis1=specaxis1,
+                                    specaxis2=specaxis2)
     # pixgrid is returned in the order y,x, which is correct for np array indexing
     pixgrid = get_pixel_mapping(flatten_header(header1),flatten_header(header2))
-    
+
     # spec, lat, lon
     # copy=False results in a *huge* speed gain on large arrays
     # indexing='ij' is necessary to prevent weird, arbitrary array shape swappings
@@ -221,13 +224,13 @@ def gsmooth_cube(cube, kernelsize, use_fft=True, psf_pad=False, fft_pad=False,
                  kernelsize_mult=8, **kwargs):
     """
     Smooth a cube with a gaussian in 3d
-    
+
     Because even a tiny cube can become enormous if you have, say, a 1024x32x32
     cube, padding is off by default
     """
     if cube.ndim != 3:
         raise ValueError("Wrong number of dimensions for a data cube")
-    
+
     #z,y,x = np.indices(cube.shape)
     # use an odd kernel size for non-fft, even kernel size for fft
     ks = (np.array(kernelsize)*kernelsize_mult).astype('int')
@@ -306,7 +309,7 @@ def spatial_smooth_cube(cube, kernelwidth, kernel=Gaussian2DKernel, cubedim=0,
     kwargs : dict
         Passed to `~astropy.convolution.convolve`
     """
-        
+
     if cubedim != 0:
         cube = cube.swapaxes(0,cubedim)
 
@@ -391,7 +394,7 @@ def spectral_smooth_cube(cube, kernelwidth, kernel=Gaussian1DKernel, cubedim=0,
     # cube = np.arange(6*5*4).reshape([4,5,6]).swapaxes(0,2)
     # cubelist.T.reshape(cube.shape) == cube
     smoothcube = smoothcube.T.reshape(shape)
-    
+
     if cubedim != 0:
         smoothcube = smoothcube.swapaxes(0,cubedim)
 
@@ -412,7 +415,7 @@ def downsample_cube(cubehdu, factor, spectralaxis=None):
         automatically if not specified
     """
 
-    
+
     header = copy.copy(cubehdu.header)
 
     mywcs = wcs.WCS(header)
